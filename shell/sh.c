@@ -6,6 +6,8 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <errno.h>
+
 
 // Simplifed xv6 shell.
 
@@ -39,6 +41,63 @@ struct pipecmd {
 int fork1(void);  // Fork but exits on failure.
 struct cmd *parsecmd(char*);
 
+char*
+cmdfullpath(char *oricmdpath)
+{
+  const char* PATH = "/bin/";
+  char* cmdpath = NULL;
+
+  if(oricmdpath[0] == '/') {
+	return oricmdpath;
+  } 
+  cmdpath = malloc(strlen(PATH) + strlen(oricmdpath) + 1);
+  assert(cmdpath);
+  strncpy(cmdpath, PATH, strlen(PATH));
+  cmdpath = strncat(cmdpath, oricmdpath, strlen(oricmdpath));
+  return cmdpath;
+}
+
+char*
+cmdcontent(char* cmdpath, char* cmdargv[])
+{
+  int i = 0;
+  char* cmdcontent = NULL;
+  int contentsize = strlen(cmdpath) + 1;
+  for (i = 0; cmdargv[i] != NULL; i++) {
+  	contentsize += strlen(cmdargv[i] + 1);
+  }
+  cmdcontent = malloc(contentsize);
+  assert(cmdcontent);
+  memset(cmdcontent, 0, contentsize);
+  strncpy(cmdcontent, cmdpath, strlen(cmdpath));
+  strncat(cmdcontent, " ", 1);
+
+  for (i = 0; cmdargv[i] != NULL; i++) {
+  	strncat(cmdcontent, cmdargv[i], strlen(cmdargv[i]));
+  	strncat(cmdcontent, " ", 1);
+  }
+  // fprintf(stderr, "cmd is: %s\n", cmdcontent);
+  return cmdcontent;
+
+}
+
+void
+execsyscmd(struct execcmd* ecmd)
+{
+  int ret = 0;
+  char* cmdpath = cmdfullpath(ecmd->argv[0]);
+  char** cmdargv = ecmd->argv + 1;
+  char* cmd = cmdcontent(cmdpath, cmdargv);
+
+  // when execv("ls", "-al"), can't show file detail info
+  // so use system()
+  // ret = execv(cmdpath, cmdargv);
+  ret = system(cmd);
+  if (ret < 0) {
+   	fprintf(stderr, "%s error: %s\n", cmdpath, strerror(errno));
+  }
+}
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -60,8 +119,8 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(0);
-    fprintf(stderr, "exec not implemented\n");
-    // Your code here ...
+
+	execsyscmd(ecmd);
     break;
 
   case '>':
@@ -102,6 +161,11 @@ main(void)
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
+	// exit if cmd contains "exit"
+	if(strncmp(buf, "exit", 4) == 0) {
+		exit(0);
+	}
+
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Clumsy but will have to do for now.
       // Chdir has no effect on the parent if run in the child.
