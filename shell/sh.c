@@ -40,20 +40,34 @@ struct pipecmd {
 
 int fork1(void);  // Fork but exits on failure.
 struct cmd *parsecmd(char*);
+void   runcmd(struct cmd*);
+
+char*
+mkcmdpath(char* dir, char* file) 
+{
+  char* cmdpath = NULL;
+  cmdpath = malloc(strlen(dir) + strlen(file) + 1);
+  assert(cmdpath);
+  strncpy(cmdpath, dir, strlen(dir));
+  strncat(cmdpath, file, strlen(file));
+  return cmdpath;
+}
 
 char*
 cmdfullpath(char *oricmdpath)
 {
-  const char* PATH = "/bin/";
+  char* PATH1 = "/bin/";
+  char* PATH2 = "/usr/bin/";
   char* cmdpath = NULL;
 
   if(oricmdpath[0] == '/') {
 	return oricmdpath;
-  } 
-  cmdpath = malloc(strlen(PATH) + strlen(oricmdpath) + 1);
-  assert(cmdpath);
-  strncpy(cmdpath, PATH, strlen(PATH));
-  cmdpath = strncat(cmdpath, oricmdpath, strlen(oricmdpath));
+  }
+
+  cmdpath = mkcmdpath(PATH1, oricmdpath);
+  if(access(cmdpath, F_OK) != 0) {
+  	cmdpath = mkcmdpath(PATH2, oricmdpath);
+  }
   return cmdpath;
 }
 
@@ -76,9 +90,7 @@ cmdcontent(char* cmdpath, char* cmdargv[])
   	strncat(cmdcontent, cmdargv[i], strlen(cmdargv[i]));
   	strncat(cmdcontent, " ", 1);
   }
-  // fprintf(stderr, "cmd is: %s\n", cmdcontent);
   return cmdcontent;
-
 }
 
 void
@@ -95,6 +107,30 @@ execsyscmd(struct execcmd* ecmd)
   ret = system(cmd);
   if (ret < 0) {
    	fprintf(stderr, "%s error: %s\n", cmdpath, strerror(errno));
+  }
+}
+
+void
+execmdpipe(struct cmd *first, struct cmd *second) 
+{
+  int fd[2];
+  pipe(fd);
+
+  // child process
+  if(fork() == 0) {
+	close(fd[0]);
+    if(dup2(fd[1], STDOUT_FILENO) < 0 ) {
+      fprintf(stderr, "dup2 error:%s\n", strerror(errno));
+	  exit(-1);
+	}
+    runcmd(first);
+  } else {
+	close(fd[1]);
+	if(dup2(fd[0], STDIN_FILENO) < 0 ) {
+      fprintf(stderr, "dup2 error:%s\n", strerror(errno));
+	  exit(-1);
+	}
+    runcmd(second);
   }
 }
 
@@ -126,15 +162,23 @@ runcmd(struct cmd *cmd)
   case '>':
   case '<':
     rcmd = (struct redircmd*)cmd;
-    fprintf(stderr, "redir not implemented\n");
-    // Your code here ...
+	// open file: rcmd->file
+	// redirect rcmd->fd to file
+	int newfd = open(rcmd->file, rcmd->mode);
+	if(newfd < 0) {
+    	fprintf(stderr, "open %s error:%s\n", rcmd->file, strerror(errno));
+		return;
+	}
+	if(dup2(newfd, rcmd->fd) < 0 ) {
+    	fprintf(stderr, "dup2 error:%s\n", strerror(errno));
+		return;
+	}
     runcmd(rcmd->cmd);
     break;
 
   case '|':
     pcmd = (struct pipecmd*)cmd;
-    fprintf(stderr, "pipe not implemented\n");
-    // Your code here ...
+	execmdpipe(pcmd->left, pcmd->right);
     break;
   }    
   exit(0);
